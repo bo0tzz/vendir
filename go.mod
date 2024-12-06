@@ -1,6 +1,6 @@
 module carvel.dev/vendir
 
-go 1.22.5
+go 1.23.3
 
 require (
 	carvel.dev/imgpkg v0.43.0
