@@ -324,7 +324,7 @@ func (d Sync) downloadAPIResponse(url string, authToken string) ([]byte, error) 
 			bs, _ := io.ReadAll(resp.Body)
 			errMsg += fmt.Sprintf(" %s (body: '%s')", hintMsg, bs)
 		}
-		return bs, fmt.Errorf(errMsg)
+		return bs, fmt.Errorf("%s", errMsg)
 	}
 
 	bs, err = io.ReadAll(resp.Body)
@@ -362,7 +362,7 @@ func (d Sync) downloadFile(url, dstPath, authToken string) error {
 			bs, _ := io.ReadAll(resp.Body)
 			errMsg += fmt.Sprintf(" %s (body: '%s')", hintMsg, bs)
 		}
-		return fmt.Errorf(errMsg)
+		return fmt.Errorf("%s", errMsg)
 	}
 
 	out, err := os.Create(dstPath)
