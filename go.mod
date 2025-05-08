@@ -3,7 +3,7 @@ module carvel.dev/vendir
 go 1.23.8
 
 require (
-	carvel.dev/imgpkg v0.45.0
+	carvel.dev/imgpkg v0.46.1
 	github.com/bmatcuk/doublestar v1.2.1
 	github.com/carvel-dev/semver/v4 v4.0.1-0.20240402203627-beb83fbf25e4
 	github.com/cppforlife/cobrautil v0.0.0-20221021151949-d60711905d65
@@ -97,8 +97,8 @@ require (
 	github.com/vito/go-interact v1.0.1 // indirect
 	golang.org/x/mod v0.22.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sync v0.12.0 // indirect
-	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/sync v0.13.0 // indirect
+	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	gonum.org/v1/gonum v0.0.0-20190331200053-3d26580ed485 // indirect
