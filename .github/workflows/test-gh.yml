@@ -18,7 +18,7 @@ jobs:
     - name: Set up Go 1.x
       uses: actions/setup-go@v5
       with:
-        go-version-file: go.mod
+        go-version-file: src/github.com/${{ github.repository }}/go.mod
     - name: Run Tests
       env:
         VENDIR_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
