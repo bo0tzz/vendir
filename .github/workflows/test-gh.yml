@@ -10,15 +10,15 @@ jobs:
     name: Test GH
     runs-on: ubuntu-latest
     steps:
-    - name: Set up Go 1.x
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.23'
     - name: Check out code into the Go module directory
       uses: actions/checkout@v4
       with:
         path: src/github.com/${{ github.repository }}
         fetch-depth: 0
+    - name: Set up Go 1.x
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: src/github.com/${{ github.repository }}/go.mod
     - name: Run Tests
       env:
         VENDIR_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
