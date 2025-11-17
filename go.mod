@@ -3,7 +3,7 @@ module carvel.dev/vendir
 go 1.24.8
 
 require (
-	carvel.dev/imgpkg v0.46.1
+	carvel.dev/imgpkg v0.47.0
 	github.com/bmatcuk/doublestar v1.2.1
 	github.com/carvel-dev/semver/v4 v4.0.1-0.20240402203627-beb83fbf25e4
 	github.com/cppforlife/cobrautil v0.0.0-20221021151949-d60711905d65
