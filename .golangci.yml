@@ -6,7 +6,6 @@ linters:
     - revive
     - unused
     - staticcheck
-    - typecheck
     - govet
   settings:
     goheader:
