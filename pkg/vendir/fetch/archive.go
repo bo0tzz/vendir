@@ -15,6 +15,8 @@ import (
 	"strings"
 )
 
+const defaultDirPermissions = 0700
+
 type Archive struct {
 	path               string
 	fallbackOnPlain    bool
@@ -49,7 +51,7 @@ func (t Archive) Unpack(dstPath string) (bool, error) {
 func (t Archive) writeIntoFile(srcFile io.Reader, dstPath, additionalPath string) error {
 	dstFilePath := filepath.Join(dstPath, additionalPath)
 
-	err := os.MkdirAll(filepath.Dir(dstFilePath), 0700)
+	err := os.MkdirAll(filepath.Dir(dstFilePath), defaultDirPermissions)
 	if err != nil {
 		return fmt.Errorf("Making intermediate dir: %s", err)
 	}
@@ -158,12 +160,38 @@ func (t Archive) tryTarWithGzip(path, dstPath string, gzipped bool) (bool, error
 		case tar.TypeXGlobalHeader:
 			continue
 
+		case tar.TypeSymlink:
+			err = createSymlink(dstPath, header.Name, header.Linkname)
+			if err != nil {
+				return true, err
+			}
+
 		default:
-			return false, fmt.Errorf("Unknown file '%s' (%d)", header.Name, header.Typeflag)
+			return true, fmt.Errorf(
+				"unsupported file type '%s' (%d)",
+				header.Name,
+				header.Typeflag,
+			)
 		}
 	}
 
 	return true, nil
+}
+
+func createSymlink(dstPath, symlinkPath, targetPath string) error {
+	fullSymlinkPath := filepath.Join(dstPath, symlinkPath)
+
+	err := os.MkdirAll(filepath.Dir(fullSymlinkPath), defaultDirPermissions)
+	if err != nil {
+		return fmt.Errorf("making intermediate dir for symlink: %s", err)
+	}
+
+	err = os.Symlink(targetPath, fullSymlinkPath)
+	if err != nil {
+		return fmt.Errorf("creating symlink: %s", err)
+	}
+
+	return nil
 }
 
 func (t Archive) tryPlain(path, dstPath string) error {
