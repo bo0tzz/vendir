@@ -15,10 +15,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	defaultDirMode     = 0755
+	defaultSymlinkMode = 0777
+	defaultFileMode    = 0644
+	noMode             = 0
+	lastCharIndex      = 1
+)
+
 // ArchiveEntry represents a simplified entry for creating archives in tests
 type ArchiveEntry struct {
 	Name     string // Path/name of the entry in the archive
-	Type     byte   // Type of entry: tar.TypeReg, tar.TypeDir, or tar.TypeSymlink
+	Type     byte   // Type: tar.TypeReg, tar.TypeDir, tar.TypeSymlink
 	Content  string // Content for regular files (ignored for dirs/symlinks)
 	Linkname string // Target for symlinks (ignored for files/dirs)
 	Mode     int64  // File mode (optional, defaults will be applied)
@@ -30,9 +38,14 @@ type TarOptions struct {
 }
 
 // createTar creates a tar file from a list of ArchiveEntry structs.
-// This is a reusable helper for creating test archives with various contents.
+// This is a reusable helper for creating test archives.
 // Use opts.Gzip to create a gzip-compressed tar.gz file.
-func createTar(t *testing.T, tarPath string, entries []ArchiveEntry, opts TarOptions) {
+func createTar(
+	t *testing.T,
+	tarPath string,
+	entries []ArchiveEntry,
+	opts TarOptions,
+) {
 	t.Helper()
 
 	file, err := os.Create(tarPath)
@@ -52,54 +65,90 @@ func createTar(t *testing.T, tarPath string, entries []ArchiveEntry, opts TarOpt
 	defer tarWriter.Close()
 
 	for _, entry := range entries {
-		mode := entry.Mode
-		if mode == 0 {
-			// Apply default modes based on type
-			switch entry.Type {
-			case tar.TypeDir:
-				mode = 0755
-			case tar.TypeSymlink:
-				mode = 0777
-			default:
-				mode = 0644
-			}
-		}
-
-		switch entry.Type {
-		case tar.TypeDir:
-			err = tarWriter.WriteHeader(&tar.Header{
-				Name:     entry.Name,
-				Mode:     mode,
-				Typeflag: tar.TypeDir,
-			})
-			require.NoError(t, err)
-
-		case tar.TypeReg:
-			content := []byte(entry.Content)
-			err = tarWriter.WriteHeader(&tar.Header{
-				Name:     entry.Name,
-				Mode:     mode,
-				Size:     int64(len(content)),
-				Typeflag: tar.TypeReg,
-			})
-			require.NoError(t, err)
-			_, err = tarWriter.Write(content)
-			require.NoError(t, err)
-
-		case tar.TypeSymlink:
-			err = tarWriter.WriteHeader(&tar.Header{
-				Name:     entry.Name,
-				Mode:     mode,
-				Typeflag: tar.TypeSymlink,
-				Linkname: entry.Linkname,
-			})
-			require.NoError(t, err)
-		}
+		writeEntryToTar(t, tarWriter, entry)
 	}
 }
 
+func writeEntryToTar(
+	t *testing.T,
+	tarWriter *tar.Writer,
+	entry ArchiveEntry,
+) {
+	t.Helper()
+	mode := getEntryMode(entry)
+
+	switch entry.Type {
+	case tar.TypeDir:
+		writeTarDir(t, tarWriter, entry.Name, mode)
+	case tar.TypeReg:
+		writeTarFile(t, tarWriter, entry.Name, entry.Content, mode)
+	case tar.TypeSymlink:
+		writeTarSymlink(t, tarWriter, entry.Name, entry.Linkname, mode)
+	}
+}
+
+func getEntryMode(entry ArchiveEntry) int64 {
+	if entry.Mode == noMode {
+		switch entry.Type {
+		case tar.TypeDir:
+			return defaultDirMode
+		case tar.TypeSymlink:
+			return defaultSymlinkMode
+		default:
+			return defaultFileMode
+		}
+	}
+	return entry.Mode
+}
+
+func writeTarDir(t *testing.T, w *tar.Writer, name string, mode int64) {
+	t.Helper()
+	err := w.WriteHeader(&tar.Header{
+		Name:     name,
+		Mode:     mode,
+		Typeflag: tar.TypeDir,
+	})
+	require.NoError(t, err)
+}
+
+func writeTarFile(
+	t *testing.T,
+	w *tar.Writer,
+	name, content string,
+	mode int64,
+) {
+	t.Helper()
+	contentBytes := []byte(content)
+	err := w.WriteHeader(&tar.Header{
+		Name:     name,
+		Mode:     mode,
+		Size:     int64(len(contentBytes)),
+		Typeflag: tar.TypeReg,
+	})
+	require.NoError(t, err)
+	_, err = w.Write(contentBytes)
+	require.NoError(t, err)
+}
+
+func writeTarSymlink(
+	t *testing.T,
+	w *tar.Writer,
+	name, linkname string,
+	mode int64,
+) {
+	t.Helper()
+	err := w.WriteHeader(&tar.Header{
+		Name:     name,
+		Mode:     mode,
+		Typeflag: tar.TypeSymlink,
+		Linkname: linkname,
+	})
+	require.NoError(t, err)
+}
+
 // createZip creates a zip file from a list of ArchiveEntry structs.
-// Note: ZIP does not support symlinks, so ArchiveEntry with Type tar.TypeSymlink will be skipped.
+// Note: ZIP does not support symlinks, entries with Type
+// tar.TypeSymlink will be skipped.
 func createZip(t *testing.T, zipPath string, entries []ArchiveEntry) {
 	t.Helper()
 
@@ -111,30 +160,53 @@ func createZip(t *testing.T, zipPath string, entries []ArchiveEntry) {
 	defer zipWriter.Close()
 
 	for _, entry := range entries {
-		switch entry.Type {
-		case tar.TypeDir:
-			// Directories in zip must end with /
-			name := entry.Name
-			if name[len(name)-1] != '/' {
-				name += "/"
-			}
-			_, err = zipWriter.Create(name)
-			require.NoError(t, err)
-
-		case tar.TypeReg:
-			writer, err := zipWriter.Create(entry.Name)
-			require.NoError(t, err)
-			_, err = writer.Write([]byte(entry.Content))
-			require.NoError(t, err)
-
-		case tar.TypeSymlink:
-			// ZIP does not support symlinks, skip
-			t.Logf("Skipping symlink entry %s (ZIP does not support symlinks)", entry.Name)
-		}
+		writeEntryToZip(t, zipWriter, entry)
 	}
 }
 
-// verifyExtractedFile checks that a file exists and has the expected content
+func writeEntryToZip(
+	t *testing.T,
+	zipWriter *zip.Writer,
+	entry ArchiveEntry,
+) {
+	t.Helper()
+
+	switch entry.Type {
+	case tar.TypeDir:
+		writeZipDir(t, zipWriter, entry.Name)
+	case tar.TypeReg:
+		writeZipFile(t, zipWriter, entry.Name, entry.Content)
+	case tar.TypeSymlink:
+		logSkippedSymlink(t, entry.Name)
+	}
+}
+
+func writeZipDir(t *testing.T, w *zip.Writer, name string) {
+	t.Helper()
+	if name[len(name)-lastCharIndex] != '/' {
+		name += "/"
+	}
+	_, err := w.Create(name)
+	require.NoError(t, err)
+}
+
+func writeZipFile(t *testing.T, w *zip.Writer, name, content string) {
+	t.Helper()
+	writer, err := w.Create(name)
+	require.NoError(t, err)
+	_, err = writer.Write([]byte(content))
+	require.NoError(t, err)
+}
+
+func logSkippedSymlink(t *testing.T, name string) {
+	t.Helper()
+	t.Logf(
+		"Skipping symlink entry %s (ZIP does not support symlinks)",
+		name,
+	)
+}
+
+// verifyExtractedFile checks file exists and has expected content
 func verifyExtractedFile(t *testing.T, path, expectedContent string) {
 	t.Helper()
 	require.FileExists(t, path)
@@ -143,18 +215,21 @@ func verifyExtractedFile(t *testing.T, path, expectedContent string) {
 	require.Equal(t, expectedContent, string(content))
 }
 
-// verifyExtractedSymlink checks that a symlink exists and points to the expected target
+// verifyExtractedSymlink checks that a symlink exists and points
+// to the expected target
 func verifyExtractedSymlink(t *testing.T, path, expectedTarget string) {
 	t.Helper()
 	linkInfo, err := os.Lstat(path)
 	require.NoError(t, err, "Symlink should exist")
-	require.True(t, linkInfo.Mode()&os.ModeSymlink != 0, "Should be a symlink")
+	require.True(t, linkInfo.Mode()&os.ModeSymlink != 0,
+		"Should be a symlink")
 	target, err := os.Readlink(path)
 	require.NoError(t, err)
 	require.Equal(t, expectedTarget, target)
 }
 
-// setupTestDir creates a temporary directory and returns it along with a cleanup function
+// setupTestDir creates a temporary directory and returns it
+// along with a cleanup function
 func setupTestDir(t *testing.T) (tmpDir string, dstPath string) {
 	t.Helper()
 	tmpDir, err := os.MkdirTemp("", "vendir-archive-test")
@@ -162,7 +237,7 @@ func setupTestDir(t *testing.T) (tmpDir string, dstPath string) {
 	t.Cleanup(func() { os.RemoveAll(tmpDir) })
 
 	dstPath = filepath.Join(tmpDir, "extracted")
-	require.NoError(t, os.MkdirAll(dstPath, 0755))
+	require.NoError(t, os.MkdirAll(dstPath, defaultDirMode))
 
 	return tmpDir, dstPath
 }
@@ -171,25 +246,32 @@ func TestArchiveUnpackTgz(t *testing.T) {
 	t.Run("Unpack tgz file with dir, file and symlink", func(t *testing.T) {
 		tmpDir, dstPath := setupTestDir(t)
 
-		// Create a synthetic tgz file without symlinks
 		tgzPath := filepath.Join(tmpDir, "test.tgz")
 		createTar(t, tgzPath, []ArchiveEntry{
 			{Name: "testdir/", Type: tar.TypeDir},
-			{Name: "testdir/file.txt", Type: tar.TypeReg, Content: "hello world"},
-			{Name: "testdir/subdir/nested.txt", Type: tar.TypeReg, Content: "nested content"},
-			{Name: "testdir/link", Type: tar.TypeSymlink, Linkname: "file.txt"},
+			{Name: "testdir/file.txt", Type: tar.TypeReg,
+				Content: "hello world"},
+			{Name: "testdir/subdir/nested.txt", Type: tar.TypeReg,
+				Content: "nested content"},
+			{Name: "testdir/link", Type: tar.TypeSymlink,
+				Linkname: "file.txt"},
 		}, TarOptions{Gzip: true})
 
-		unpacked, err := ctlfetch.NewArchive(tgzPath, false, "").Unpack(dstPath)
+		unpacked, err := ctlfetch.NewArchive(
+			tgzPath, false, "").Unpack(dstPath)
 		require.NoError(t, err, "Unpacking should not return an error")
-		require.True(t, unpacked, "Unpacking should return true indicating success")
+		require.True(t, unpacked,
+			"Unpacking should return true indicating success")
 
-		// Verify that files were extracted
-		verifyExtractedFile(t, filepath.Join(dstPath, "testdir", "file.txt"), "hello world")
-		verifyExtractedFile(t, filepath.Join(dstPath, "testdir", "subdir", "nested.txt"), "nested content")
-
-		// Verify the symlink was created
-		verifyExtractedSymlink(t, filepath.Join(dstPath, "testdir", "link"), "file.txt")
+		verifyExtractedFile(t,
+			filepath.Join(dstPath, "testdir", "file.txt"),
+			"hello world")
+		verifyExtractedFile(t,
+			filepath.Join(dstPath, "testdir", "subdir", "nested.txt"),
+			"nested content")
+		verifyExtractedSymlink(t,
+			filepath.Join(dstPath, "testdir", "link"),
+			"file.txt")
 	})
 }
 
@@ -197,25 +279,32 @@ func TestArchiveUnpackTar(t *testing.T) {
 	t.Run("Unpack tar file dir, file and symlink", func(t *testing.T) {
 		tmpDir, dstPath := setupTestDir(t)
 
-		// Create a synthetic tgz file without symlinks
 		tarPath := filepath.Join(tmpDir, "test.tar")
 		createTar(t, tarPath, []ArchiveEntry{
 			{Name: "testdir/", Type: tar.TypeDir},
-			{Name: "testdir/file.txt", Type: tar.TypeReg, Content: "hello world"},
-			{Name: "testdir/subdir/nested.txt", Type: tar.TypeReg, Content: "nested content"},
-			{Name: "testdir/link", Type: tar.TypeSymlink, Linkname: "file.txt"},
+			{Name: "testdir/file.txt", Type: tar.TypeReg,
+				Content: "hello world"},
+			{Name: "testdir/subdir/nested.txt", Type: tar.TypeReg,
+				Content: "nested content"},
+			{Name: "testdir/link", Type: tar.TypeSymlink,
+				Linkname: "file.txt"},
 		}, TarOptions{Gzip: false})
 
-		unpacked, err := ctlfetch.NewArchive(tarPath, false, "").Unpack(dstPath)
+		unpacked, err := ctlfetch.NewArchive(
+			tarPath, false, "").Unpack(dstPath)
 		require.NoError(t, err, "Unpacking should not return an error")
-		require.True(t, unpacked, "Unpacking should return true indicating success")
+		require.True(t, unpacked,
+			"Unpacking should return true indicating success")
 
-		// Verify that files were extracted
-		verifyExtractedFile(t, filepath.Join(dstPath, "testdir", "file.txt"), "hello world")
-		verifyExtractedFile(t, filepath.Join(dstPath, "testdir", "subdir", "nested.txt"), "nested content")
-
-		// Verify the symlink was created
-		verifyExtractedSymlink(t, filepath.Join(dstPath, "testdir", "link"), "file.txt")
+		verifyExtractedFile(t,
+			filepath.Join(dstPath, "testdir", "file.txt"),
+			"hello world")
+		verifyExtractedFile(t,
+			filepath.Join(dstPath, "testdir", "subdir", "nested.txt"),
+			"nested content")
+		verifyExtractedSymlink(t,
+			filepath.Join(dstPath, "testdir", "link"),
+			"file.txt")
 	})
 }
 
@@ -223,20 +312,26 @@ func TestArchiveUnpackZip(t *testing.T) {
 	t.Run("Unpack zip file without symlinks succeeds", func(t *testing.T) {
 		tmpDir, dstPath := setupTestDir(t)
 
-		// Create a synthetic zip file
 		zipPath := filepath.Join(tmpDir, "test.zip")
 		createZip(t, zipPath, []ArchiveEntry{
 			{Name: "testdir/", Type: tar.TypeDir},
-			{Name: "testdir/file.txt", Type: tar.TypeReg, Content: "hello world"},
-			{Name: "testdir/subdir/nested.txt", Type: tar.TypeReg, Content: "nested content"},
+			{Name: "testdir/file.txt", Type: tar.TypeReg,
+				Content: "hello world"},
+			{Name: "testdir/subdir/nested.txt", Type: tar.TypeReg,
+				Content: "nested content"},
 		})
 
-		unpacked, err := ctlfetch.NewArchive(zipPath, false, "").Unpack(dstPath)
+		unpacked, err := ctlfetch.NewArchive(
+			zipPath, false, "").Unpack(dstPath)
 		require.NoError(t, err, "Unpacking should not return an error")
-		require.True(t, unpacked, "Unpacking should return true indicating success")
+		require.True(t, unpacked,
+			"Unpacking should return true indicating success")
 
-		// Verify that files were extracted
-		verifyExtractedFile(t, filepath.Join(dstPath, "testdir", "file.txt"), "hello world")
-		verifyExtractedFile(t, filepath.Join(dstPath, "testdir", "subdir", "nested.txt"), "nested content")
+		verifyExtractedFile(t,
+			filepath.Join(dstPath, "testdir", "file.txt"),
+			"hello world")
+		verifyExtractedFile(t,
+			filepath.Join(dstPath, "testdir", "subdir", "nested.txt"),
+			"nested content")
 	})
 }
