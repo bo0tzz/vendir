@@ -84,6 +84,8 @@ func writeEntryToTar(
 		writeTarFile(t, tarWriter, entry.Name, entry.Content, mode)
 	case tar.TypeSymlink:
 		writeTarSymlink(t, tarWriter, entry.Name, entry.Linkname, mode)
+	default:
+		t.Fatalf("Unknown Entry type %c for entry '%s'", entry.Type, entry.Name)
 	}
 }
 
@@ -178,6 +180,8 @@ func writeEntryToZip(
 		writeZipFile(t, zipWriter, entry.Name, entry.Content)
 	case tar.TypeSymlink:
 		logSkippedSymlink(t, entry.Name)
+	default:
+		t.Fatalf("Unknown Entry type %c for entry '%s'", entry.Type, entry.Name)
 	}
 }
 
