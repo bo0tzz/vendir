@@ -158,6 +158,15 @@ func (t *Sync) addAuth(req *http.Request) error {
 	_, hasPass := secret.Data[ctlconf.SecretK8sCorev1BasicAuthPasswordKey]
 	token, hasToken := secret.Data[ctlconf.SecretK8sCorev1HTTPBearerTokenKey]
 
+	// Validate that token is not empty if provided.
+	if hasToken && len(token) == 0 {
+		return fmt.Errorf(
+			"Secret '%s' contains empty '%s'",
+			secret.Metadata.Name,
+			ctlconf.SecretK8sCorev1HTTPBearerTokenKey,
+		)
+	}
+
 	// Basic auth requires a username if password is provided, but password is optional.
 	if hasPass && !hasUser {
 		return fmt.Errorf(

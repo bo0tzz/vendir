@@ -126,6 +126,16 @@ func TestSync_HTTPAuth(t *testing.T) {
 			expectedError: "must not contain both basic auth",
 		},
 		{
+			name: "when bearer token is empty, it fails",
+			secret: ctlconf.Secret{
+				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
+				Data: map[string][]byte{
+					ctlconf.SecretK8sCorev1HTTPBearerTokenKey: []byte(""),
+				},
+			},
+			expectedError: "contains empty 'token'",
+		},
+		{
 			name: "when password is provided without username, it fails",
 			secret: ctlconf.Secret{
 				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
