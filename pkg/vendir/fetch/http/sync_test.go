@@ -1,18 +1,20 @@
-package http
+// Copyright 2024 The Carvel Authors.
+// SPDX-License-Identifier: Apache-2.0
+
+package http_test
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	ctlconf "carvel.dev/vendir/pkg/vendir/config"
+	vendirhttp "carvel.dev/vendir/pkg/vendir/fetch/http"
+	"github.com/stretchr/testify/require"
 )
-
-/*
-Fake RefFetcher (implements ctlfetch.RefFetcher)
-*/
 
 type fakeRefFetcher struct {
 	secrets    map[string]ctlconf.Secret
@@ -28,10 +30,10 @@ func (f fakeRefFetcher) GetSecret(name string) (ctlconf.Secret, error) {
 }
 
 func (f fakeRefFetcher) GetConfigMap(name string) (ctlconf.ConfigMap, error) {
-	// Not used by these tests, but required by the interface.
 	if f.configMaps == nil {
 		return ctlconf.ConfigMap{}, fmt.Errorf("configmap %q not found", name)
 	}
+
 	cm, ok := f.configMaps[name]
 	if !ok {
 		return ctlconf.ConfigMap{}, fmt.Errorf("configmap %q not found", name)
@@ -39,90 +41,81 @@ func (f fakeRefFetcher) GetConfigMap(name string) (ctlconf.ConfigMap, error) {
 	return cm, nil
 }
 
-/*
-Helper: build the correct SecretRef type for DirectoryContentsHTTP.
-In vendir, HTTP uses a dedicated type (not a generic ctlconf.SecretRef).
-*/
+type fakeTempArea struct {
+	baseDir string
+}
+
+func (f fakeTempArea) NewTempDir(prefix string) (string, error) {
+	return os.MkdirTemp(f.baseDir, prefix)
+}
+
+func (f fakeTempArea) NewTempFile(prefix string) (*os.File, error) {
+	return os.CreateTemp(f.baseDir, prefix)
+}
+
 func secretRef(name string) *ctlconf.DirectoryContentsLocalRef {
 	return &ctlconf.DirectoryContentsLocalRef{Name: name}
 }
 
-/*
-Tests
-*/
+type syncTest struct {
+	name          string
+	secret        ctlconf.Secret
+	expectedBody  string
+	expectedError string
+	validateReq   func(t *testing.T, r *http.Request)
+}
 
-func TestHTTPAuth_BasicAuth_Succeeds(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, pass, ok := r.BasicAuth()
-		if !ok || user != "admin" || pass != "password" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer srv.Close()
-
-	ref := fakeRefFetcher{
-		secrets: map[string]ctlconf.Secret{
-			"http-auth": {
+func TestSync_HTTPAuth(t *testing.T) {
+	allTests := []syncTest{
+		{
+			name: "when basic auth username and password are provided, it succeeds",
+			secret: ctlconf.Secret{
 				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
 				Data: map[string][]byte{
 					ctlconf.SecretK8sCorev1BasicAuthUsernameKey: []byte("admin"),
 					ctlconf.SecretK8sCorev1BasicAuthPasswordKey: []byte("password"),
 				},
 			},
+			expectedBody: "ok",
+			validateReq: func(t *testing.T, r *http.Request) {
+				user, pass, ok := r.BasicAuth()
+				require.True(t, ok)
+				require.Equal(t, "admin", user)
+				require.Equal(t, "password", pass)
+			},
 		},
-	}
-
-	s := NewSync(ctlconf.DirectoryContentsHTTP{
-		URL:       srv.URL,
-		SecretRef: secretRef("http-auth"),
-	}, ref)
-
-	var dst bytes.Buffer
-	if err := s.downloadFile(&dst); err != nil {
-		t.Fatalf("expected basic auth download to succeed, got error: %v", err)
-	}
-}
-
-func TestHTTPAuth_BearerToken_Succeeds(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Authorization"); got != "Bearer abc123" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer srv.Close()
-
-	ref := fakeRefFetcher{
-		secrets: map[string]ctlconf.Secret{
-			"http-auth": {
+		{
+			name: "when bearer token is provided, it succeeds",
+			secret: ctlconf.Secret{
 				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
 				Data: map[string][]byte{
 					ctlconf.SecretK8sCorev1HTTPBearerTokenKey: []byte("abc123"),
 				},
 			},
+			expectedBody: "ok",
+			validateReq: func(t *testing.T, r *http.Request) {
+				require.Equal(t, "Bearer abc123", r.Header.Get("Authorization"))
+			},
 		},
-	}
-
-	s := NewSync(ctlconf.DirectoryContentsHTTP{
-		URL:       srv.URL,
-		SecretRef: secretRef("http-auth"),
-	}, ref)
-
-	var dst bytes.Buffer
-	if err := s.downloadFile(&dst); err != nil {
-		t.Fatalf("expected bearer auth download to succeed, got error: %v", err)
-	}
-}
-
-func TestHTTPAuth_MixedAuth_Fails(t *testing.T) {
-	ref := fakeRefFetcher{
-		secrets: map[string]ctlconf.Secret{
-			"http-auth": {
+		{
+			name: "when username is provided without password, it uses empty password and succeeds",
+			secret: ctlconf.Secret{
+				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
+				Data: map[string][]byte{
+					ctlconf.SecretK8sCorev1BasicAuthUsernameKey: []byte("admin"),
+				},
+			},
+			expectedBody: "ok",
+			validateReq: func(t *testing.T, r *http.Request) {
+				user, pass, ok := r.BasicAuth()
+				require.True(t, ok)
+				require.Equal(t, "admin", user)
+				require.Equal(t, "", pass)
+			},
+		},
+		{
+			name: "when basic auth and bearer token are mixed, it fails",
+			secret: ctlconf.Secret{
 				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
 				Data: map[string][]byte{
 					ctlconf.SecretK8sCorev1BasicAuthUsernameKey: []byte("admin"),
@@ -130,62 +123,65 @@ func TestHTTPAuth_MixedAuth_Fails(t *testing.T) {
 					ctlconf.SecretK8sCorev1HTTPBearerTokenKey:   []byte("abc123"),
 				},
 			},
+			expectedError: "must not contain both basic auth",
 		},
-	}
-
-	s := NewSync(ctlconf.DirectoryContentsHTTP{
-		URL:       "http://example.com",
-		SecretRef: secretRef("http-auth"),
-	}, ref)
-
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
-	if err := s.addAuth(req); err == nil {
-		t.Fatalf("expected error for mixed auth, got nil")
-	}
-}
-
-func TestHTTPAuth_UsernameWithoutPassword_Fails(t *testing.T) {
-	ref := fakeRefFetcher{
-		secrets: map[string]ctlconf.Secret{
-			"http-auth": {
-				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
-				Data: map[string][]byte{
-					ctlconf.SecretK8sCorev1BasicAuthUsernameKey: []byte("admin"),
-				},
-			},
-		},
-	}
-
-	s := NewSync(ctlconf.DirectoryContentsHTTP{
-		URL:       "http://example.com",
-		SecretRef: secretRef("http-auth"),
-	}, ref)
-
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
-	if err := s.addAuth(req); err == nil {
-		t.Fatalf("expected error when username is set without password")
-	}
-}
-
-func TestHTTPAuth_PasswordWithoutUsername_Fails(t *testing.T) {
-	ref := fakeRefFetcher{
-		secrets: map[string]ctlconf.Secret{
-			"http-auth": {
+		{
+			name: "when password is provided without username, it fails",
+			secret: ctlconf.Secret{
 				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
 				Data: map[string][]byte{
 					ctlconf.SecretK8sCorev1BasicAuthPasswordKey: []byte("password"),
 				},
 			},
+			expectedError: "is missing 'username'",
 		},
 	}
 
-	s := NewSync(ctlconf.DirectoryContentsHTTP{
-		URL:       "http://example.com",
-		SecretRef: secretRef("http-auth"),
-	}, ref)
+	for _, test := range allTests {
+		t.Run(test.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if test.expectedError != "" {
+					t.Fatalf("server should not be reached when auth setup fails")
+				}
 
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
-	if err := s.addAuth(req); err == nil {
-		t.Fatalf("expected error when password is set without username")
+				test.validateReq(t, r)
+
+				w.WriteHeader(http.StatusOK)
+				_, err := w.Write([]byte(test.expectedBody))
+				require.NoError(t, err)
+			}))
+			defer srv.Close()
+
+			ref := fakeRefFetcher{
+				secrets: map[string]ctlconf.Secret{
+					"http-auth": test.secret,
+				},
+			}
+
+			subject := vendirhttp.NewSync(ctlconf.DirectoryContentsHTTP{
+				URL:           srv.URL,
+				SecretRef:     secretRef("http-auth"),
+				DisableUnpack: true,
+			}, ref)
+
+			tempRoot, err := os.MkdirTemp("", "vendir-http-test")
+			require.NoError(t, err)
+			defer os.RemoveAll(tempRoot)
+
+			dstPath := filepath.Join(tempRoot, "dst")
+			_, err = subject.Sync(dstPath, fakeTempArea{baseDir: tempRoot})
+
+			if test.expectedError != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), test.expectedError)
+				return
+			}
+
+			require.NoError(t, err)
+
+			bs, err := os.ReadFile(filepath.Join(dstPath, filepath.Base(srv.URL)))
+			require.NoError(t, err)
+			require.Equal(t, test.expectedBody, string(bs))
+		})
 	}
 }
