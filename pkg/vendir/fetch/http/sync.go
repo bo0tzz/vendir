@@ -148,14 +148,56 @@ func (t *Sync) addAuth(req *http.Request) error {
 		switch name {
 		case ctlconf.SecretK8sCorev1BasicAuthUsernameKey:
 		case ctlconf.SecretK8sCorev1BasicAuthPasswordKey:
+		case ctlconf.SecretK8sCorev1HTTPBearerTokenKey:
 		default:
 			return fmt.Errorf("Unknown secret field '%s' in secret '%s'", name, secret.Metadata.Name)
 		}
 	}
 
-	if _, found := secret.Data[ctlconf.SecretK8sCorev1BasicAuthUsernameKey]; found {
-		req.SetBasicAuth(string(secret.Data[ctlconf.SecretK8sCorev1BasicAuthUsernameKey]),
-			string(secret.Data[ctlconf.SecretK8sCorev1BasicAuthPasswordKey]))
+	_, hasUser := secret.Data[ctlconf.SecretK8sCorev1BasicAuthUsernameKey]
+	_, hasPass := secret.Data[ctlconf.SecretK8sCorev1BasicAuthPasswordKey]
+	token, hasToken := secret.Data[ctlconf.SecretK8sCorev1HTTPBearerTokenKey]
+
+	// Validate that token is not empty if provided.
+	if hasToken && len(token) == 0 {
+		return fmt.Errorf(
+			"Secret '%s' contains empty '%s'",
+			secret.Metadata.Name,
+			ctlconf.SecretK8sCorev1HTTPBearerTokenKey,
+		)
+	}
+
+	// Basic auth requires a username if password is provided, but password is optional.
+	if hasPass && !hasUser {
+		return fmt.Errorf(
+			"Secret '%s' contains '%s' but is missing '%s'",
+			secret.Metadata.Name,
+			ctlconf.SecretK8sCorev1BasicAuthPasswordKey,
+			ctlconf.SecretK8sCorev1BasicAuthUsernameKey,
+		)
+	}
+
+	// Do not allow mixing basic auth and bearer token in the same secret.
+	if hasToken && hasUser {
+		return fmt.Errorf(
+			"Secret '%s' must not contain both basic auth (username/password) and token",
+			secret.Metadata.Name,
+		)
+	}
+
+	// Bearer token auth
+	if hasToken {
+		req.Header.Set("Authorization", "Bearer "+string(token))
+		return nil
+	}
+
+	// Basic auth — password is optional, defaults to empty string
+	if hasUser {
+		password := string(secret.Data[ctlconf.SecretK8sCorev1BasicAuthPasswordKey])
+		req.SetBasicAuth(
+			string(secret.Data[ctlconf.SecretK8sCorev1BasicAuthUsernameKey]),
+			password,
+		)
 	}
 
 	return nil
