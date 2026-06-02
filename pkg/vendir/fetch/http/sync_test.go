@@ -65,6 +65,7 @@ type syncTest struct {
 	validateReq   func(t *testing.T, r *http.Request)
 }
 
+//nolint:revive
 func TestSync_HTTPAuth(t *testing.T) {
 	metadata := ctlconf.GenericMetadata{Name: "http-auth"}
 	allTests := []syncTest{
@@ -119,7 +120,7 @@ func TestSync_HTTPAuth(t *testing.T) {
 			secret: ctlconf.Secret{
 				Metadata: metadata,
 				Data: map[string][]byte{
-					ctlconf.SecretK8sCorev1BasicAuthUsernameKey: []byte("admin"),
+					ctlconf.SecretK8sCorev1BasicAuthUsernameKey: []byte("admin-with-token"),
 					ctlconf.SecretK8sCorev1BasicAuthPasswordKey: []byte("password1"),
 					ctlconf.SecretK8sCorev1HTTPBearerTokenKey:   []byte("abc123"),
 				},

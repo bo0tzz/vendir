@@ -180,6 +180,7 @@ func (t *Sync) addAuth(req *http.Request) error {
 
 	// Do not allow mixing basic auth and bearer token in the same secret.
 	if hasToken && hasUser {
+		//nolint:revive // line-length-limit
 		return fmt.Errorf(
 			"Secret '%s' must not contain both basic auth (username/password) and token",
 			secret.Metadata.Name,
