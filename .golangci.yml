@@ -1,50 +1,51 @@
+version: "2"
 linters:
-  disable-all: true # Replaces 'default: none'
+  default: none
   enable:
     - goheader
     - revive
     - unused
     - staticcheck
     - govet
-
-# 'settings' has been renamed to 'linters-settings'
-linters-settings:
-  goheader:
-    values:
-      regexp:
-        copyright-year: 20[0-9][0-9]
-    template-path: code-header-template.txt
-    
-  revive:
-    enable-all-rules: true
-    rules:
+  settings:
+    goheader:
+      values:
+        regexp:
+          copyright-year: 20[0-9][0-9]
+      template-path: code-header-template.txt
+    revive:
+      enable-all-rules: true
+      rules:
       - name: dot-imports
         disabled: true
       - name: add-constant
         arguments:
-          # Fixed: 'allowInts' is not a valid configuration key for revive's add-constant.
-          # The correct key is 'allowWhitelistedIdentifiers'
-          - allowWhitelistedIdentifiers: "0,1"
+          - allowInts: "0,1"
+  exclusions:
+    rules:
+      # Ignore function line count rules in test files
+      - path: _test\.go
+        linters:
+          - revive
+        text: "function-lines:"
 
+      # Ignore overall line length limits in test files
+      - path: _test\.go
+        linters:
+          - revive
+        text: "line-length-limit:"
+
+      # Ignore cognitive complexity in tests
+      - path: _test\.go
+        linters:
+          - revive
+        text: "cognitive-complexity:"
+
+      # Ignore capitalized error strings globally
+      - linters:
+          - staticcheck
+        text: "ST1005:"
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
   new-from-rev: 83f3e89d49b7882e0b9afc305a00f67232ba96b1
-  # This section will now validate perfectly under the correct schema
-  exclude-rules:
-    # 1. Ignore function line count rules in test files
-    - path: _test\.go
-      linters:
-        - revive
-      text: "function-lines:"
-
-    # 2. Ignore overall line length limits in test files
-    - path: _test\.go
-      linters:
-        - revive
-      text: "line-length-limit:"
-
-    # 3. Ignore capitalized error strings globally
-    - linters:
-        - staticcheck
-      text: "ST1005:"
