@@ -66,17 +66,18 @@ type syncTest struct {
 }
 
 func TestSync_HTTPAuth(t *testing.T) {
+	metadata := ctlconf.GenericMetadata{Name: "http-auth"}
 	allTests := []syncTest{
 		{
 			name: "when basic auth username and password are provided, it succeeds",
 			secret: ctlconf.Secret{
-				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
+				Metadata: metadata,
 				Data: map[string][]byte{
 					ctlconf.SecretK8sCorev1BasicAuthUsernameKey: []byte("admin"),
 					ctlconf.SecretK8sCorev1BasicAuthPasswordKey: []byte("password"),
 				},
 			},
-			expectedBody: "ok",
+			expectedBody: "ok with user and password",
 			validateReq: func(t *testing.T, r *http.Request) {
 				user, pass, ok := r.BasicAuth()
 				require.True(t, ok)
@@ -87,12 +88,12 @@ func TestSync_HTTPAuth(t *testing.T) {
 		{
 			name: "when bearer token is provided, it succeeds",
 			secret: ctlconf.Secret{
-				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
+				Metadata: metadata,
 				Data: map[string][]byte{
 					ctlconf.SecretK8sCorev1HTTPBearerTokenKey: []byte("abc123"),
 				},
 			},
-			expectedBody: "ok",
+			expectedBody: "ok with bearer token key",
 			validateReq: func(t *testing.T, r *http.Request) {
 				require.Equal(t, "Bearer abc123", r.Header.Get("Authorization"))
 			},
@@ -100,26 +101,26 @@ func TestSync_HTTPAuth(t *testing.T) {
 		{
 			name: "when username is provided without password, it uses empty password and succeeds",
 			secret: ctlconf.Secret{
-				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
+				Metadata: metadata,
 				Data: map[string][]byte{
-					ctlconf.SecretK8sCorev1BasicAuthUsernameKey: []byte("admin"),
+					ctlconf.SecretK8sCorev1BasicAuthUsernameKey: []byte("admin-no-password"),
 				},
 			},
-			expectedBody: "ok",
+			expectedBody: "ok with only username",
 			validateReq: func(t *testing.T, r *http.Request) {
 				user, pass, ok := r.BasicAuth()
 				require.True(t, ok)
-				require.Equal(t, "admin", user)
+				require.Equal(t, "admin-no-password", user)
 				require.Equal(t, "", pass)
 			},
 		},
 		{
 			name: "when basic auth and bearer token are mixed, it fails",
 			secret: ctlconf.Secret{
-				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
+				Metadata: metadata,
 				Data: map[string][]byte{
 					ctlconf.SecretK8sCorev1BasicAuthUsernameKey: []byte("admin"),
-					ctlconf.SecretK8sCorev1BasicAuthPasswordKey: []byte("password"),
+					ctlconf.SecretK8sCorev1BasicAuthPasswordKey: []byte("password1"),
 					ctlconf.SecretK8sCorev1HTTPBearerTokenKey:   []byte("abc123"),
 				},
 			},
@@ -128,7 +129,7 @@ func TestSync_HTTPAuth(t *testing.T) {
 		{
 			name: "when bearer token is empty, it fails",
 			secret: ctlconf.Secret{
-				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
+				Metadata: metadata,
 				Data: map[string][]byte{
 					ctlconf.SecretK8sCorev1HTTPBearerTokenKey: []byte(""),
 				},
@@ -138,9 +139,9 @@ func TestSync_HTTPAuth(t *testing.T) {
 		{
 			name: "when password is provided without username, it fails",
 			secret: ctlconf.Secret{
-				Metadata: ctlconf.GenericMetadata{Name: "http-auth"},
+				Metadata: metadata,
 				Data: map[string][]byte{
-					ctlconf.SecretK8sCorev1BasicAuthPasswordKey: []byte("password"),
+					ctlconf.SecretK8sCorev1BasicAuthPasswordKey: []byte("password2"),
 				},
 			},
 			expectedError: "is missing 'username'",
@@ -151,7 +152,7 @@ func TestSync_HTTPAuth(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if test.expectedError != "" {
-					t.Fatalf("server should not be reached when auth setup fails")
+					t.Fatal("server should not be reached when auth setup fails")
 				}
 
 				test.validateReq(t, r)
