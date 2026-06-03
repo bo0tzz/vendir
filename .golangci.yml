@@ -18,6 +18,33 @@ linters:
       rules:
       - name: dot-imports
         disabled: true
+      - name: add-constant
+        arguments:
+          - allowInts: "0,1"
+  exclusions:
+    rules:
+      # Ignore function line count rules in test files
+      - path: _test\.go
+        linters:
+          - revive
+        text: "function-lines:"
+
+      # Ignore overall line length limits in test files
+      - path: _test\.go
+        linters:
+          - revive
+        text: "line-length-limit:"
+
+      # Ignore cognitive complexity in tests
+      - path: _test\.go
+        linters:
+          - revive
+        text: "cognitive-complexity:"
+
+      # Ignore capitalized error strings globally
+      - linters:
+          - staticcheck
+        text: "ST1005:"
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

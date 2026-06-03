@@ -167,7 +167,8 @@ func (t *Sync) addAuth(req *http.Request) error {
 		)
 	}
 
-	// Basic auth requires a username if password is provided, but password is optional.
+	// Basic auth requires a username if password is provided,
+	// but password is optional.
 	if hasPass && !hasUser {
 		return fmt.Errorf(
 			"Secret '%s' contains '%s' but is missing '%s'",
@@ -179,6 +180,7 @@ func (t *Sync) addAuth(req *http.Request) error {
 
 	// Do not allow mixing basic auth and bearer token in the same secret.
 	if hasToken && hasUser {
+		//nolint:revive // line-length-limit
 		return fmt.Errorf(
 			"Secret '%s' must not contain both basic auth (username/password) and token",
 			secret.Metadata.Name,
@@ -193,7 +195,8 @@ func (t *Sync) addAuth(req *http.Request) error {
 
 	// Basic auth — password is optional, defaults to empty string
 	if hasUser {
-		password := string(secret.Data[ctlconf.SecretK8sCorev1BasicAuthPasswordKey])
+		password := string(secret.Data[
+			ctlconf.SecretK8sCorev1BasicAuthPasswordKey])
 		req.SetBasicAuth(
 			string(secret.Data[ctlconf.SecretK8sCorev1BasicAuthUsernameKey]),
 			password,
