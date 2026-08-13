@@ -43,6 +43,16 @@ func main() {
 	}
 }
 
+// isCompletionCmd reports whether the executed command is the "completion"
+// command (or one of its shell subcommands), or Cobra's hidden "__complete"
+// / "__completeNoDesc" command used to serve live shell completions. Output
+// from any of these must not be followed by extra text.
 func isCompletionCmd(c *cobra.Command) bool {
-	return c.Name() == "completion" || (c.HasParent() && c.Parent().Name() == "completion")
+	for ; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "completion", cobra.ShellCompRequestCmd:
+			return true
+		}
+	}
+	return false
 }
