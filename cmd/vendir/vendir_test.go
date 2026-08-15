@@ -14,9 +14,10 @@ func TestIsCompletionCmd(t *testing.T) {
 	completion := &cobra.Command{Use: "completion"}
 	completionBash := &cobra.Command{Use: "bash"}
 	shellComplete := &cobra.Command{Use: cobra.ShellCompRequestCmd}
+	shellCompleteNoDesc := &cobra.Command{Use: cobra.ShellCompNoDescRequestCmd}
 	sync := &cobra.Command{Use: "sync"}
 
-	root.AddCommand(completion, shellComplete, sync)
+	root.AddCommand(completion, shellComplete, shellCompleteNoDesc, sync)
 	completion.AddCommand(completionBash)
 
 	cases := []struct {
@@ -28,6 +29,7 @@ func TestIsCompletionCmd(t *testing.T) {
 		{"completion command itself", completion, true},
 		{"completion shell subcommand", completionBash, true},
 		{"hidden __complete command", shellComplete, true},
+		{"hidden __completeNoDesc command", shellCompleteNoDesc, true},
 		{"unrelated command", sync, false},
 	}
 

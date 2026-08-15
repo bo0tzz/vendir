@@ -50,8 +50,11 @@ func main() {
 func isCompletionCmd(c *cobra.Command) bool {
 	for ; c != nil; c = c.Parent() {
 		switch c.Name() {
-		case "completion", cobra.ShellCompRequestCmd:
+		case "completion",
+			cobra.ShellCompRequestCmd,
+			cobra.ShellCompNoDescRequestCmd:
 			return true
+		default:
 		}
 	}
 	return false
