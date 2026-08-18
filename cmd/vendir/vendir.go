@@ -13,6 +13,7 @@ import (
 	"carvel.dev/vendir/pkg/vendir/cmd"
 	uierrs "github.com/cppforlife/go-cli-ui/errors"
 	"github.com/cppforlife/go-cli-ui/ui"
+	"github.com/spf13/cobra"
 )
 
 func main() {
@@ -28,11 +29,33 @@ func main() {
 
 	command := cmd.NewDefaultVendirCmd(confUI)
 
-	err := command.Execute()
+	executedCmd, err := command.ExecuteC()
 	if err != nil {
 		confUI.ErrorLinef("vendir: Error: %v", uierrs.NewMultiLineError(err))
 		os.Exit(1)
 	}
 
-	confUI.PrintLinef("Succeeded")
+	// The "completion" command (and its shell subcommands) prints a script
+	// that is meant to be sourced/eval'd directly, so it must not be
+	// followed by any extra output.
+	if !isCompletionCmd(executedCmd) {
+		confUI.PrintLinef("Succeeded")
+	}
+}
+
+// isCompletionCmd reports whether the executed command is the "completion"
+// command (or one of its shell subcommands), or Cobra's hidden "__complete"
+// / "__completeNoDesc" command used to serve live shell completions. Output
+// from any of these must not be followed by extra text.
+func isCompletionCmd(c *cobra.Command) bool {
+	for ; c != nil; c = c.Parent() {
+		switch c.Name() {
+		case "completion",
+			cobra.ShellCompRequestCmd,
+			cobra.ShellCompNoDescRequestCmd:
+			return true
+		default:
+		}
+	}
+	return false
 }
